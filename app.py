@@ -19,30 +19,29 @@ DEFAULT_COLORS = (
     "#F2C94C",
 )
 
-EQUATION_VERSION = 2
+EQUATION_VERSION = 3
 
-DEFAULT_CURVE_TEMPLATES = (
-    {
-        "NOME": "Rel\u00e9 4", "COR": "#FF0001", "IMIN_AT": 5.86,
-        "B": 80.0, "ALFA": 2.0, "A": 0.0, "TDS": 0.45,
-        "ENABLE_50": True, "I50": 23.73, "I_MAX": 20000.0,
+CURVE_LIBRARY = {
+    "Norma IEC": {
+        "Inversa": (0.0, 0.14, 0.02),
+        "Muito inversa": (0.0, 13.5, 1.0),
+        "Extremamente inversa": (0.0, 80.0, 2.0),
+        "Tempo longo": (0.0, 120.0, 1.0),
+        "Tempo curto": (0.0, 0.05, 0.04),
     },
-    {
-        "NOME": "Rel\u00e9 3", "COR": "#0098FF", "IMIN_AT": 8.79,
-        "B": 80.0, "ALFA": 2.0, "A": 0.0, "TDS": 0.65,
-        "ENABLE_50": True, "I50": 49.84, "I_MAX": 20000.0,
+    "Norma ANSI": {
+        "Moderadamente inversa": (0.0226, 0.0104, 0.02),
+        "Inversa": (0.180, 5.98, 2.0),
+        "Muito inversa": (0.0963, 3.88, 2.0),
+        "Extremamente inversa": (0.02434, 5.64, 2.0),
+        "Tempo curto": (0.00262, 0.00342, 0.02),
     },
-    {
-        "NOME": "Rel\u00e9 2", "COR": "#2CA02C", "IMIN_AT": 17.57,
-        "B": 80.0, "ALFA": 2.0, "A": 0.0, "TDS": 0.85,
-        "ENABLE_50": False, "I50": 1000.0, "I_MAX": 99.68,
-    },
-    {
-        "NOME": "Rel\u00e9 1", "COR": "#F2C94C", "IMIN_AT": 70.29,
-        "B": 80.0, "ALFA": 2.0, "A": 0.0, "TDS": 1.05,
-        "ENABLE_50": True, "I50": 102.76, "I_MAX": 20000.0,
-    },
-)
+}
+
+DEFAULT_CURVE_TYPES = {
+    "Norma IEC": "Extremamente inversa",
+    "Norma ANSI": "Moderadamente inversa",
+}
 
 
 FIGURE_FORMATS = {
@@ -53,7 +52,7 @@ FIGURE_FORMATS = {
         "line_width": 3,
         "export_width": 1600,
         "export_height": 1000,
-        "margin": {"l": 80, "r": 35, "t": 85, "b": 75},
+        "margin": {"l": 80, "r": 35, "t": 55, "b": 75},
     },
     "A4 Retrato": {
         "width": 1240,
@@ -62,7 +61,7 @@ FIGURE_FORMATS = {
         "line_width": 4,
         "export_width": 1240,
         "export_height": 1754,
-        "margin": {"l": 115, "r": 60, "t": 125, "b": 110},
+        "margin": {"l": 115, "r": 60, "t": 75, "b": 110},
     },
     "A4 Paisagem": {
         "width": 1754,
@@ -71,21 +70,20 @@ FIGURE_FORMATS = {
         "line_width": 4,
         "export_width": 1754,
         "export_height": 1240,
-        "margin": {"l": 115, "r": 60, "t": 120, "b": 105},
+        "margin": {"l": 115, "r": 60, "t": 70, "b": 105},
     },
 }
 
 
-def new_curve(
-    index: int,
-    template: dict[str, float | str | bool] | None = None,
-) -> dict[str, float | str | bool]:
-    """Cria uma curva independente com identificador unico."""
+def new_curve(index: int) -> dict[str, float | str | bool]:
+    """Cria uma curva IEC extremamente inversa e independente."""
 
-    curve: dict[str, float | str | bool] = {
+    return {
         "id": uuid4().hex,
         "NOME": f"Curva {index}",
         "COR": DEFAULT_COLORS[(index - 1) % len(DEFAULT_COLORS)],
+        "STANDARD": "Norma IEC",
+        "CURVE_TYPE": "Extremamente inversa",
         "IMIN_AT": 100.0,
         "B": 80.0,
         "ALFA": 2.0,
@@ -95,21 +93,15 @@ def new_curve(
         "I50": 1000.0,
         "I_MAX": 20000.0,
     }
-    if template is not None:
-        curve.update(template)
-    return curve
 
 
 def default_curves() -> list[dict[str, float | str | bool]]:
-    return [
-        new_curve(index, template)
-        for index, template in enumerate(DEFAULT_CURVE_TEMPLATES, start=1)
-    ]
+    return [new_curve(1)]
 
 
 CONFIG_FIELDS = (
-    "NOME", "COR", "IMIN_AT", "B", "ALFA", "A", "TDS",
-    "ENABLE_50", "I50", "I_MAX",
+    "NOME", "COR", "STANDARD", "CURVE_TYPE", "IMIN_AT",
+    "B", "ALFA", "A", "TDS", "ENABLE_50", "I50", "I_MAX",
 )
 
 
@@ -155,7 +147,7 @@ def serialize_configuration(
 
 
 def parse_configuration(data: object) -> dict[str, object]:
-    """Valida o JSON e converte arquivos da equacao anterior."""
+    """Valida o JSON e converte arquivos de versoes anteriores."""
 
     if not isinstance(data, dict) or not isinstance(data.get("curves"), list):
         raise ValueError("Arquivo de configura\u00e7\u00e3o inv\u00e1lido.")
@@ -175,15 +167,24 @@ def parse_configuration(data: object) -> dict[str, object]:
             raw.get("IMIN_AT"), 100.0, 0.000001, 1.0e9
         )
 
-        raw_a = bounded_number(raw.get("A"), 0.0, 0.0, 1.0e9)
-        raw_b = bounded_number(raw.get("B"), 80.0, 0.0, 1.0e9)
-        if config_version < EQUATION_VERSION and raw_a == 80.0 and raw_b == 0.0:
+        standard = str(raw.get("STANDARD", "Norma IEC"))
+        if standard not in CURVE_LIBRARY:
+            standard = "Norma IEC"
+        curve_type = str(raw.get("CURVE_TYPE", DEFAULT_CURVE_TYPES[standard]))
+        if curve_type not in CURVE_LIBRARY[standard]:
+            curve_type = DEFAULT_CURVE_TYPES[standard]
+        curve["STANDARD"] = standard
+        curve["CURVE_TYPE"] = curve_type
+        default_a, default_b, default_alpha = CURVE_LIBRARY[standard][curve_type]
+
+        raw_a = bounded_number(raw.get("A"), default_a, 0.0, 1.0e9)
+        raw_b = bounded_number(raw.get("B"), default_b, 0.0, 1.0e9)
+        if config_version == 1 and raw_a == 80.0 and raw_b == 0.0:
             raw_a, raw_b = 0.0, 80.0
         curve["A"] = raw_a
         curve["B"] = raw_b
-
         curve["ALFA"] = bounded_number(
-            raw.get("ALFA"), 2.0, 0.000001, 100.0
+            raw.get("ALFA"), default_alpha, 0.000001, 100.0
         )
         curve["TDS"] = bounded_number(
             raw.get("TDS"), 1.0, 0.000001, 1.0e6
@@ -198,21 +199,21 @@ def parse_configuration(data: object) -> dict[str, object]:
         )
         curves.append(curve)
 
-    figure_format = str(data.get("figure_format", "A4 Retrato"))
+    figure_format = str(data.get("figure_format", "Tela (Responsivo)"))
     if figure_format not in FIGURE_FORMATS:
-        figure_format = "A4 Retrato"
+        figure_format = "Tela (Responsivo)"
 
     return {
         "curves": curves,
         "graph_title": str(
-            data.get("graph_title", "Curvas de Prote\u00e7\u00e3o Entre Fases")
+            data.get("graph_title", "Coordenograma de Prote\u00e7\u00e3o")
         )[:300],
         "figure_format": figure_format,
     }
 
 
 def initialize_state() -> None:
-    """Inicializa a nova equacao e aplica imports antes dos widgets."""
+    """Inicializa a interface atual e aplica imports antes dos widgets."""
 
     pending_import = st.session_state.pop("_pending_import", None)
     if isinstance(pending_import, dict):
@@ -223,13 +224,13 @@ def initialize_state() -> None:
 
     if st.session_state.get("equation_version") != EQUATION_VERSION:
         st.session_state.curves = default_curves()
-        st.session_state.figure_format = "A4 Retrato"
-        st.session_state.graph_title = "Curvas de Prote\u00e7\u00e3o Entre Fases"
+        st.session_state.figure_format = "Tela (Responsivo)"
+        st.session_state.graph_title = "Coordenograma de Prote\u00e7\u00e3o"
         st.session_state.equation_version = EQUATION_VERSION
 
     required = {
-        "id", "NOME", "COR", "IMIN_AT", "B", "ALFA", "A", "TDS",
-        "ENABLE_50", "I50", "I_MAX",
+        "id", "NOME", "COR", "STANDARD", "CURVE_TYPE", "IMIN_AT",
+        "B", "ALFA", "A", "TDS", "ENABLE_50", "I50", "I_MAX",
     }
     stored = st.session_state.get("curves")
     invalid = (
@@ -241,10 +242,8 @@ def initialize_state() -> None:
         st.session_state.curves = default_curves()
 
     if st.session_state.get("figure_format") not in FIGURE_FORMATS:
-        st.session_state.figure_format = "A4 Retrato"
-    st.session_state.setdefault(
-        "graph_title", "Curvas de Prote\u00e7\u00e3o Entre Fases"
-    )
+        st.session_state.figure_format = "Tela (Responsivo)"
+    st.session_state.setdefault("graph_title", "Coordenograma de Prote\u00e7\u00e3o")
 
 
 def inverse_time(
@@ -296,11 +295,47 @@ def calculate_curve(
     return currents, times
 
 
+
+def curve_by_id(curve_id: str) -> dict[str, float | str | bool]:
+    return next(
+        curve for curve in st.session_state.curves if str(curve["id"]) == curve_id
+    )
+
+
+def apply_selected_factors(
+    curve_id: str, standard: str, curve_type: str
+) -> None:
+    """Atualiza o modelo e os tres widgets antes do rerun."""
+
+    curve = curve_by_id(curve_id)
+    a_value, b_value, alpha = CURVE_LIBRARY[standard][curve_type]
+    curve["STANDARD"] = standard
+    curve["CURVE_TYPE"] = curve_type
+    curve["A"] = a_value
+    curve["B"] = b_value
+    curve["ALFA"] = alpha
+    st.session_state[f"a_{curve_id}"] = a_value
+    st.session_state[f"b_{curve_id}"] = b_value
+    st.session_state[f"alpha_{curve_id}"] = alpha
+
+
+def on_standard_change(curve_id: str) -> None:
+    standard = st.session_state[f"standard_{curve_id}"]
+    curve_type = DEFAULT_CURVE_TYPES[standard]
+    st.session_state[f"curve_type_{curve_id}"] = curve_type
+    apply_selected_factors(curve_id, standard, curve_type)
+
+
+def on_curve_type_change(curve_id: str) -> None:
+    standard = st.session_state[f"standard_{curve_id}"]
+    curve_type = st.session_state[f"curve_type_{curve_id}"]
+    apply_selected_factors(curve_id, standard, curve_type)
+
 def render_sidebar() -> tuple[str, str]:
     """Renderiza somente formato, lista e parametros das curvas."""
 
     with st.sidebar:
-        st.title("Curvas 50/51")
+        st.title("Coordenograma")
 
         if st.button("Adicionar Curva", type="primary", width="stretch"):
             st.session_state.curves.append(new_curve(len(st.session_state.curves) + 1))
@@ -328,6 +363,71 @@ def render_sidebar() -> tuple[str, str]:
                 curve["COR"] = st.color_picker(
                     "Cor", value=str(curve["COR"]), key=f"color_{curve_id}"
                 )
+
+                standard_key = f"standard_{curve_id}"
+                if (
+                    standard_key not in st.session_state
+                    or st.session_state[standard_key] not in CURVE_LIBRARY
+                ):
+                    st.session_state[standard_key] = str(curve["STANDARD"])
+                selected_standard = st.selectbox(
+                    "Norma",
+                    tuple(CURVE_LIBRARY),
+                    key=standard_key,
+                    on_change=on_standard_change,
+                    args=(curve_id,),
+                )
+
+                type_options = tuple(CURVE_LIBRARY[selected_standard])
+                type_key = f"curve_type_{curve_id}"
+                if (
+                    type_key not in st.session_state
+                    or st.session_state[type_key] not in type_options
+                ):
+                    current_type = str(curve["CURVE_TYPE"])
+                    st.session_state[type_key] = (
+                        current_type
+                        if current_type in type_options
+                        else DEFAULT_CURVE_TYPES[selected_standard]
+                    )
+                selected_type = st.selectbox(
+                    "Tipo de curva",
+                    type_options,
+                    key=type_key,
+                    on_change=on_curve_type_change,
+                    args=(curve_id,),
+                )
+                curve["STANDARD"] = selected_standard
+                curve["CURVE_TYPE"] = selected_type
+
+                st.caption("Fatores da curva: A, B e \u03b1")
+                a_key = f"a_{curve_id}"
+                b_key = f"b_{curve_id}"
+                alpha_key = f"alpha_{curve_id}"
+                st.session_state.setdefault(a_key, float(curve["A"]))
+                st.session_state.setdefault(b_key, float(curve["B"]))
+                st.session_state.setdefault(alpha_key, float(curve["ALFA"]))
+                curve["A"] = st.number_input(
+                    "A",
+                    min_value=0.0,
+                    max_value=1.0e9,
+                    format="%.6f",
+                    key=a_key,
+                )
+                curve["B"] = st.number_input(
+                    "B",
+                    min_value=0.0,
+                    max_value=1.0e9,
+                    format="%.6f",
+                    key=b_key,
+                )
+                curve["ALFA"] = st.number_input(
+                    "ALFA (\u03b1)",
+                    min_value=0.000001,
+                    max_value=100.0,
+                    format="%.6f",
+                    key=alpha_key,
+                )
                 curve["IMIN_AT"] = st.number_input(
                     "Ip - corrente de pickup (A)",
                     min_value=0.000001,
@@ -335,30 +435,6 @@ def render_sidebar() -> tuple[str, str]:
                     value=float(curve["IMIN_AT"]),
                     format="%.6f",
                     key=f"imin_{curve_id}",
-                )
-                curve["B"] = st.number_input(
-                    "B",
-                    min_value=0.0,
-                    max_value=1.0e9,
-                    value=float(curve["B"]),
-                    format="%.6f",
-                    key=f"b_{curve_id}",
-                )
-                curve["ALFA"] = st.number_input(
-                    "ALFA",
-                    min_value=0.000001,
-                    max_value=100.0,
-                    value=float(curve["ALFA"]),
-                    format="%.6f",
-                    key=f"alpha_{curve_id}",
-                )
-                curve["A"] = st.number_input(
-                    "A",
-                    min_value=0.0,
-                    max_value=1.0e9,
-                    value=float(curve["A"]),
-                    format="%.6f",
-                    key=f"a_{curve_id}",
                 )
                 curve["TDS"] = st.number_input(
                     "TDS",
@@ -463,13 +539,20 @@ def render_sidebar() -> tuple[str, str]:
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
                 st.error(str(error))
 
+        st.divider()
+        st.markdown(
+            "<div style='text-align:center;opacity:.62;font-size:.75rem;'>"
+            "Desenvolvido por Daniel Murad de Freitas"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
     return figure_format, graph_title
 
 
 def build_figure(
     curves: list[dict[str, float | str | bool]],
     figure_format: str,
-    graph_title: str,
 ) -> go.Figure:
     """Reconstroi todo o grafico a partir do estado atual."""
 
@@ -511,18 +594,13 @@ def build_figure(
         )
 
     layout = {
-        "title": {
-            "text": graph_title or "Curvas de Prote\u00e7\u00e3o ANSI 50/51",
-            "font": {"size": settings["font_size"] + 6},
-        },
         "height": settings["height"],
         "autosize": settings["width"] is None,
-        "paper_bgcolor": "white",
-        "plot_bgcolor": "white",
+        "paper_bgcolor": "rgba(0,0,0,0)",
+        "plot_bgcolor": "rgba(0,0,0,0)",
         "font": {
             "family": "Arial, sans-serif",
             "size": settings["font_size"],
-            "color": "#263746",
         },
         "hovermode": "closest",
         "margin": settings["margin"],
@@ -532,15 +610,15 @@ def build_figure(
             "y": 1.02,
             "xanchor": "right",
             "x": 1,
-            "bgcolor": "rgba(255,255,255,0.9)",
+            "bgcolor": "rgba(0,0,0,0)",
         },
         "xaxis": {
             "type": "log",
             "title": "Corrente de curto-circuito - Icc (A)",
             "range": [np.log10(current_min), np.log10(current_max)],
             "showgrid": True,
-            "gridcolor": "#D9E0E6",
-            "minor": {"showgrid": True, "gridcolor": "#EEF1F4"},
+            "gridcolor": "rgba(128,128,128,0.28)",
+            "minor": {"showgrid": True, "gridcolor": "rgba(128,128,128,0.12)"},
             "zeroline": False,
         },
         "yaxis": {
@@ -548,8 +626,8 @@ def build_figure(
             "title": "Tempo (s)",
             "autorange": True,
             "showgrid": True,
-            "gridcolor": "#D9E0E6",
-            "minor": {"showgrid": True, "gridcolor": "#EEF1F4"},
+            "gridcolor": "rgba(128,128,128,0.28)",
+            "minor": {"showgrid": True, "gridcolor": "rgba(128,128,128,0.12)"},
             "zeroline": False,
         },
     }
@@ -562,7 +640,7 @@ def build_figure(
 
 def main() -> None:
     st.set_page_config(
-        page_title="Curvas de Prote\u00e7\u00e3o ANSI 50/51",
+        page_title="Coordenograma",
         page_icon="\u26a1",
         layout="wide",
     )
@@ -570,17 +648,12 @@ def main() -> None:
     figure_format, graph_title = render_sidebar()
 
     st.title(graph_title or "Curvas de Prote\u00e7\u00e3o ANSI 50/51")
-    st.caption(
-        r"$t=A+\left(\frac{B}{M^{ALFA}-1}\right)TDS,"
-        r"\quad M=\frac{I_{cc}}{I_p},"
-        r"\quad I_p=IMIN\_AT,\quad I_{cc}=I$"
-    )
-
     settings = FIGURE_FORMATS[figure_format]
-    figure = build_figure(st.session_state.curves, figure_format, graph_title)
+    figure = build_figure(st.session_state.curves, figure_format)
     st.plotly_chart(
         figure,
         width="stretch" if settings["width"] is None else "content",
+        theme="streamlit",
         config={
             "displaylogo": False,
             "scrollZoom": True,
