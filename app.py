@@ -132,6 +132,7 @@ def serialize_configuration(
     curves: list[dict[str, float | str | bool]],
     graph_title: str,
     figure_format: str,
+    grid_alpha: float,
 ) -> str:
     """Serializa apenas configuracoes, sem reaproveitar IDs internos."""
 
@@ -139,6 +140,7 @@ def serialize_configuration(
         "version": EQUATION_VERSION,
         "graph_title": graph_title,
         "figure_format": figure_format,
+        "grid_alpha": grid_alpha,
         "curves": [
             {field: curve[field] for field in CONFIG_FIELDS} for curve in curves
         ],
@@ -209,6 +211,7 @@ def parse_configuration(data: object) -> dict[str, object]:
             data.get("graph_title", "Coordenograma de Prote\u00e7\u00e3o")
         )[:300],
         "figure_format": figure_format,
+        "grid_alpha": bounded_number(data.get("grid_alpha"), 0.28, 0.0, 1.0),
     }
 
 
@@ -220,12 +223,18 @@ def initialize_state() -> None:
         st.session_state.curves = pending_import["curves"]
         st.session_state.figure_format = pending_import["figure_format"]
         st.session_state.graph_title = pending_import["graph_title"]
+        st.session_state.grid_alpha = pending_import["grid_alpha"]
+        st.session_state.collapsed_curve_ids = {
+            str(curve["id"]) for curve in pending_import["curves"]
+        }
         st.session_state.equation_version = EQUATION_VERSION
 
     if st.session_state.get("equation_version") != EQUATION_VERSION:
         st.session_state.curves = default_curves()
         st.session_state.figure_format = "Tela (Responsivo)"
         st.session_state.graph_title = "Coordenograma de Prote\u00e7\u00e3o"
+        st.session_state.grid_alpha = 0.28
+        st.session_state.collapsed_curve_ids = set()
         st.session_state.equation_version = EQUATION_VERSION
 
     required = {
@@ -243,6 +252,10 @@ def initialize_state() -> None:
 
     if st.session_state.get("figure_format") not in FIGURE_FORMATS:
         st.session_state.figure_format = "Tela (Responsivo)"
+    st.session_state.grid_alpha = bounded_number(
+        st.session_state.get("grid_alpha"), 0.28, 0.0, 1.0
+    )
+    st.session_state.setdefault("collapsed_curve_ids", set())
     st.session_state.setdefault("graph_title", "Coordenograma de Prote\u00e7\u00e3o")
 
 
@@ -331,7 +344,7 @@ def on_curve_type_change(curve_id: str) -> None:
     curve_type = st.session_state[f"curve_type_{curve_id}"]
     apply_selected_factors(curve_id, standard, curve_type)
 
-def render_sidebar() -> tuple[str, str]:
+def render_sidebar() -> tuple[str, str, float]:
     """Renderiza somente formato, lista e parametros das curvas."""
 
     with st.sidebar:
@@ -345,18 +358,33 @@ def render_sidebar() -> tuple[str, str]:
             "T\u00edtulo do gr\u00e1fico",
             key="graph_title",
         )
-        figure_format = st.selectbox(
-            "Formato da figura",
-            tuple(FIGURE_FORMATS),
-            key="figure_format",
-        )
+        format_column, grid_column = st.columns((1.35, 1.0))
+        with format_column:
+            figure_format = st.selectbox(
+                "Formato da figura",
+                tuple(FIGURE_FORMATS),
+                key="figure_format",
+            )
+        with grid_column:
+            grid_alpha = st.slider(
+                "Alpha do grid",
+                min_value=0.0,
+                max_value=1.0,
+                step=0.05,
+                key="grid_alpha",
+                help="Controla a transparência das linhas do grid.",
+            )
 
         curve_to_remove: str | None = None
         for position, curve in enumerate(st.session_state.curves, start=1):
             curve_id = str(curve["id"])
             title = str(curve["NOME"]) or f"Curva {position}"
 
-            with st.expander(title, expanded=True):
+            with st.expander(
+                title,
+                expanded=curve_id
+                not in st.session_state.collapsed_curve_ids,
+            ):
                 curve["NOME"] = st.text_input(
                     "Nome", value=str(curve["NOME"]), key=f"name_{curve_id}"
                 )
@@ -512,7 +540,7 @@ def render_sidebar() -> tuple[str, str]:
         st.divider()
         st.subheader("Configura\u00e7\u00f5es")
         config_json = serialize_configuration(
-            st.session_state.curves, graph_title, figure_format
+            st.session_state.curves, graph_title, figure_format, grid_alpha
         )
         st.download_button(
             "Baixar configura\u00e7\u00f5es",
@@ -547,16 +575,19 @@ def render_sidebar() -> tuple[str, str]:
             unsafe_allow_html=True,
         )
 
-    return figure_format, graph_title
+    return figure_format, graph_title, grid_alpha
 
 
 def build_figure(
     curves: list[dict[str, float | str | bool]],
     figure_format: str,
+    grid_alpha: float,
 ) -> go.Figure:
     """Reconstroi todo o grafico a partir do estado atual."""
 
     settings = FIGURE_FORMATS[figure_format]
+    major_grid_color = f"rgba(128,128,128,{grid_alpha:.3f})"
+    minor_grid_color = f"rgba(128,128,128,{grid_alpha * 0.43:.3f})"
     pickups = [float(curve["IMIN_AT"]) for curve in curves]
     curve_limits = [
         float(curve["I50"]) * 1.35
@@ -617,8 +648,9 @@ def build_figure(
             "title": "Corrente de curto-circuito - Icc (A)",
             "range": [np.log10(current_min), np.log10(current_max)],
             "showgrid": True,
-            "gridcolor": "rgba(128,128,128,0.28)",
-            "minor": {"showgrid": True, "gridcolor": "rgba(128,128,128,0.12)"},
+            "gridcolor": major_grid_color,
+            "minor": {"showgrid": True, "gridcolor": minor_grid_color},
+            "tickfont": {"color": "#000000"},
             "zeroline": False,
         },
         "yaxis": {
@@ -626,8 +658,9 @@ def build_figure(
             "title": "Tempo (s)",
             "autorange": True,
             "showgrid": True,
-            "gridcolor": "rgba(128,128,128,0.28)",
-            "minor": {"showgrid": True, "gridcolor": "rgba(128,128,128,0.12)"},
+            "gridcolor": major_grid_color,
+            "minor": {"showgrid": True, "gridcolor": minor_grid_color},
+            "tickfont": {"color": "#000000"},
             "zeroline": False,
         },
     }
@@ -645,11 +678,11 @@ def main() -> None:
         layout="wide",
     )
     initialize_state()
-    figure_format, graph_title = render_sidebar()
+    figure_format, graph_title, grid_alpha = render_sidebar()
 
     st.title(graph_title or "Curvas de Prote\u00e7\u00e3o ANSI 50/51")
     settings = FIGURE_FORMATS[figure_format]
-    figure = build_figure(st.session_state.curves, figure_format)
+    figure = build_figure(st.session_state.curves, figure_format, grid_alpha)
     st.plotly_chart(
         figure,
         width="stretch" if settings["width"] is None else "content",

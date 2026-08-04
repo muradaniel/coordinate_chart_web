@@ -35,6 +35,7 @@ relatórios técnicos e ajustes preliminares de relés.
 - Preenchimento automático de <code>A</code>, <code>B</code> e <code>ALFA</code>.
 - Coeficientes editáveis manualmente após a seleção.
 - Formatos **Tela**, **A4 Retrato** e **A4 Paisagem**.
+- Controle da transparência do grid diretamente no painel.
 - Tema claro ou escuro herdado automaticamente do Streamlit.
 - Importação e exportação das configurações em JSON.
 - Título externo personalizável e gráfico interativo com Plotly.
@@ -116,9 +117,9 @@ Depois, acesse [http://localhost:8501](http://localhost:8501).
 
 ## Configurações JSON
 
-O arquivo exportado guarda o título, formato da figura e parâmetros de todas as
-curvas. Na importação, os dados são validados e novos identificadores internos
-são gerados para evitar conflitos no estado da aplicação.
+O arquivo exportado guarda o título, formato da figura, alpha do grid e parâmetros de todas as
+curvas. Na importação, os dados são validados, novos identificadores internos
+são gerados para evitar conflitos e as curvas são exibidas inicialmente recolhidas.
 
 <details>
 <summary>Exemplo simplificado</summary>
@@ -128,6 +129,7 @@ são gerados para evitar conflitos no estado da aplicação.
   "version": 3,
   "graph_title": "Coordenograma de Proteção",
   "figure_format": "Tela (Responsivo)",
+  "grid_alpha": 0.28,
   "curves": [
     {
       "NOME": "Curva 1",
